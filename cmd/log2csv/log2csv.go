@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
@@ -158,11 +159,12 @@ func processLine(line string, re *regexp.Regexp, groupNames []string) ([]string,
 }
 
 func writeCSVRow(output io.Writer, values []string, lineEnding string) error {
-	csvValues := make([]string, len(values))
-	for idxValue, value := range values {
-		csvValues[idxValue] = `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+	csvWriter := csv.NewWriter(output)
+	csvWriter.Comma = csvSeparator
+	csvWriter.UseCRLF = lineEnding == "\r\n"
+	if err := csvWriter.Write(values); err != nil {
+		return err
 	}
-	csvLine := strings.Join(csvValues, string(csvSeparator)) + lineEnding
-	_, err := io.WriteString(output, csvLine)
-	return err
+	csvWriter.Flush()
+	return csvWriter.Error()
 }
