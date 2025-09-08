@@ -97,6 +97,9 @@ func processInput(input io.Reader, re *regexp.Regexp, groupNames []string, outpu
 		return err
 	}
 	sc := openInput(inputReader)
+	csvWriter := csv.NewWriter(output)
+	csvWriter.Comma = csvSeparator
+	csvWriter.UseCRLF = lineEnding == "\r\n"
 	firstLine := true
 	ignoredLines := 0
 	var firstIgnoredLine string
@@ -128,11 +131,11 @@ func processInput(input io.Reader, re *regexp.Regexp, groupNames []string, outpu
 		}
 		if firstLine {
 			firstLine = false
-			if err := writeCSVRow(output, groupNames, lineEnding); err != nil {
+			if err := csvWriter.Write(groupNames); err != nil {
 				return err
 			}
 		}
-		if err := writeCSVRow(output, values, lineEnding); err != nil {
+		if err := csvWriter.Write(values); err != nil {
 			return err
 		}
 	}
@@ -140,7 +143,11 @@ func processInput(input io.Reader, re *regexp.Regexp, groupNames []string, outpu
 	if !listUnmatched && ignoredLines > 0 {
 		fmt.Fprintf(os.Stderr, "\nwarning: %d log line(s) did not match the pattern and were ignored\nfirst ignored line: %q\n", ignoredLines, firstIgnoredLine)
 	}
-	return sc.Err()
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	csvWriter.Flush()
+	return csvWriter.Error()
 }
 
 func peekForLineEnding(input io.Reader, sizeMaxPeek int) (io.Reader, string, error) {
@@ -189,15 +196,4 @@ func processLine(line string, re *regexp.Regexp, groupNames []string) ([]string,
 		return nil, false
 	}
 	return values, true
-}
-
-func writeCSVRow(output io.Writer, values []string, lineEnding string) error {
-	csvWriter := csv.NewWriter(output)
-	csvWriter.Comma = csvSeparator
-	csvWriter.UseCRLF = lineEnding == "\r\n"
-	if err := csvWriter.Write(values); err != nil {
-		return err
-	}
-	csvWriter.Flush()
-	return csvWriter.Error()
 }
