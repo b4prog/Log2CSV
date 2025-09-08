@@ -30,14 +30,20 @@ var (
 
 func usage() {
 	msg := `Usage:
-  log2csv -regexp '<pattern with (?P<name>...) groups>'
+  log2csv -regexp '<pattern with (?P<name>...) groups>' [-unmatched]
 
 Description:
   Reads log lines from STDIN, extracts named capture groups using the provided regular expression,
   and writes a CSV to STDOUT.
 
+  If -unmatched is provided, the tool instead prints the unique non-matching lines (one per line) to STDOUT.
+
 Examples:
-  log2csv -regexp '^(?P<Timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\+\d{2}:\d{2})\s+(?P<Hostname>\S+)\s+(?P<Facility>\S+):\s+\[(?P<Kernel_Time>[\d\.]+)\]\s+\[(?P<Action>UFW\s+\S+)\]\s+IN=(?P<IN>\S*)\s+OUT=(?P<OUT>\S*)\s+MAC=(?P<MAC>\S+)\s+SRC=(?P<SRC>\S+)\s+DST=(?P<DST>\S+)\s+LEN=(?P<LEN>\d+)\s+(?:(?:TOS=(?P<TOS>0x[0-9A-Fa-f]{2})\s+)?(?:PREC=(?P<PREC>0x[0-9A-Fa-f]{2})\s+)?(?:TTL=(?P<TTL>\d+)\s+)?ID=(?P<ID>\d+)\s+(?:(?P<DF>DF)\s+)?|(?:TC=(?P<TC>\d+)\s+)?(?:HOPLIMIT=(?P<HOPLIMIT>\d+)\s+)?(?:FLOWLBL=(?P<FLOWLBL>[0-9A-Fa-fx]+)\s+)? )PROTO=(?P<PROTO>[A-Za-z0-9]+)\s+(?:(?:SPT|SP)=(?P<SPT>\d+)\s+)?(?:(?:DPT|DP)=(?P<DPT>\d+)\s+)?(?:WINDOW=(?P<WINDOW>\d+)\s+)?(?:RES=(?P<RES>0x[0-9A-Fa-f]{2})\s+)?(?:(?P<TCP_Flags>(?:SYN|ACK|FIN|RST|PSH|URG|CWR|ECE)(?:\s+(?:SYN|ACK|FIN|RST|PSH|URG|CWR|ECE))*))?(?:\s+URGP=(?P<URGP>\d+))?(?:\s+TYPE=(?P<ICMP_TYPE>\d+))?(?:\s+CODE=(?P<ICMP_CODE>\d+))?(?:\s+SEQ=(?P<ICMP_SEQ>\d+))?(?:\s+LEN=(?P<L4_LEN>\d+))?\s*$' < /var/log/ufw.log
+  # CSV mode (default)
+  log2csv -regexp '^(?P<Timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\+\d{2}:\d{2})\s+(?P<Hostname>\S+)\s+(?P<Facility>\S+):\s+\[\s*(?P<Kernel_Time>\d+(?:\.\d+)?)\]\s+\[(?P<Action>UFW\s+\S+)\]\s+IN=(?P<IN>\S*)\s+OUT=(?P<OUT>\S*)\s+MAC=(?P<MAC>\S*)\s+SRC=(?P<SRC>\S+)\s+DST=(?P<DST>\S+)\s+LEN=(?P<LEN>\d+)(?:(?:\s+(?:TOS=(?P<TOS>0x[0-9A-Fa-f]{2})\s+)?(?:PREC=(?P<PREC>0x[0-9A-Fa-f]{2})\s+)?(?:TTL=(?P<TTL>\d+)\s+)?ID=(?P<ID>\d+)(?:\s+(?P<DF>DF))?)|\s+TC=(?P<TC>\d+)\s+HOPLIMIT=(?P<HOPLIMIT>\d+)\s+FLOWLBL=(?P<FLOWLBL>[0-9A-Fa-fx]+))?\s+PROTO=(?P<PROTO>[A-Za-z0-9]+)(?:\s+(?:SPT|SP)=(?P<SPT>\d+))?(?:\s+(?:DPT|DP)=(?P<DPT>\d+))?(?:\s+WINDOW=(?P<WINDOW>\d+))?(?:\s+RES=(?P<RES>0x[0-9A-Fa-f]{2}))?(?:\s+(?P<TCP_Flags>(?:SYN|ACK|FIN|RST|PSH|URG|CWR|ECE)(?:\s+(?:SYN|ACK|FIN|RST|PSH|URG|CWR|ECE))*))?(?:\s+URGP=(?P<URGP>\d+))?(?:\s+TYPE=(?P<ICMP_TYPE>\d+))?(?:\s+CODE=(?P<ICMP_CODE>\d+))?(?:\s+SEQ=(?P<ICMP_SEQ>\d+))?(?:\s+LEN=(?P<L4_LEN>\d+))?\s*$' < /var/log/ufw.log
+
+  # List unique non-matching lines
+  log2csv -regexp '<your-regex>' -unmatched < /var/log/ufw.log
 `
 	fmt.Fprint(os.Stderr, msg)
 }
@@ -51,6 +57,7 @@ func main() {
 
 func run() error {
 	pattern := flag.String("regexp", "", "regular expression with named capture groups, e.g. '(?P<ts>...) (?P<level>...)'")
+	listUnmatched := flag.Bool("unmatched", false, "only list unique non-matching lines from STDIN")
 	flag.Usage = usage
 	flag.Parse()
 	if strings.TrimSpace(*pattern) == "" {
@@ -66,7 +73,7 @@ func run() error {
 		return ErrNoNamedCaptureGroups
 	}
 	out := bufio.NewWriter(os.Stdout)
-	err = processInput(os.Stdin, re, groupNames, out)
+	err = processInput(os.Stdin, re, groupNames, out, *listUnmatched)
 	if flushErr := out.Flush(); err == nil && flushErr != nil {
 		err = flushErr
 	}
@@ -84,17 +91,39 @@ func extractGroupNames(re *regexp.Regexp) []string {
 	return ordered
 }
 
-func processInput(input io.Reader, re *regexp.Regexp, groupNames []string, output io.Writer) error {
+func processInput(input io.Reader, re *regexp.Regexp, groupNames []string, output io.Writer, listUnmatched bool) error {
 	inputReader, lineEnding, err := peekForLineEnding(input, logLineSizeMax)
 	if err != nil {
 		return err
 	}
 	sc := openInput(inputReader)
 	firstLine := true
+	ignoredLines := 0
+	var firstIgnoredLine string
+	// Track unique non-matching lines when -unmatched is set.
+	seenUnmatched := make(map[string]struct{})
 	for sc.Scan() {
 		line := sc.Text()
 		values, ok := processLine(line, re, groupNames)
 		if !ok {
+			if strings.TrimSpace(line) != "" {
+				if listUnmatched {
+					if _, exists := seenUnmatched[line]; !exists {
+						seenUnmatched[line] = struct{}{}
+						// In unmatched mode, print each unique non-matching line once.
+						fmt.Fprintln(output, line)
+					}
+				} else {
+					ignoredLines++
+					if firstIgnoredLine == "" {
+						firstIgnoredLine = line
+					}
+				}
+			}
+			continue
+		}
+		// In unmatched mode, we skip matched lines entirely.
+		if listUnmatched {
 			continue
 		}
 		if firstLine {
@@ -106,6 +135,10 @@ func processInput(input io.Reader, re *regexp.Regexp, groupNames []string, outpu
 		if err := writeCSVRow(output, values, lineEnding); err != nil {
 			return err
 		}
+	}
+	// Only warn about ignored lines in CSV mode.
+	if !listUnmatched && ignoredLines > 0 {
+		fmt.Fprintf(os.Stderr, "\nwarning: %d log line(s) did not match the pattern and were ignored\nfirst ignored line: %q\n", ignoredLines, firstIgnoredLine)
 	}
 	return sc.Err()
 }
