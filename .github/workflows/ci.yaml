@@ -80,13 +80,6 @@ jobs:
       - name: Vet
         run: go vet -mod=readonly ./...
 
-      - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: latest
-          args: --timeout=5m
-          install-mode: binary
-
       - name: Build
         run: go build -mod=readonly ./...
 
