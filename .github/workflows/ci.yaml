@@ -14,6 +14,7 @@ concurrency:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     # Run from the repo root now that go.mod is at top level
     defaults:
