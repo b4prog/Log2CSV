@@ -44,7 +44,3 @@ go install github.com/b4prog/Log2CSV@latest
 task build
 ./build/log2csv -help
 ```
-
-```
-
-```
