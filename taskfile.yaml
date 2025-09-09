@@ -1,0 +1,102 @@
+version: "3"
+
+vars:
+  APP_NAME: Log2CSV
+  SRC_DIR: cmd/log2csv
+  BUILD_DIR: build
+  BIN_NAME: log2csv{{if eq .OS "windows"}}.exe{{end}}
+  CGO_ENABLED: "0"
+  LDFLAGS: ""
+
+tasks:
+  default:
+    desc: Build the project
+    cmds:
+      - task: build
+
+  help:
+    desc: Show available tasks
+    silent: true
+    cmds:
+      - |
+        echo "Tasks:"
+        echo "  task build         # Compile to ./build/{{.BIN_NAME}}"
+        echo "  task run -- [args] # Run the compiled binary with optional CLI args"
+        echo "  task clean         # Remove ./build"
+        echo "  task fmt           # go fmt ./..."
+        echo "  task vet           # go vet ./..."
+        echo "  task tidy          # go mod tidy"
+        echo "  task deps          # go mod download"
+        echo "  task test          # go test -race ./..."
+
+  tidy:
+    desc: go mod tidy in SRC_DIR
+    dir: "{{.SRC_DIR}}"
+    cmds:
+      - go mod tidy
+
+  deps:
+    desc: Download modules
+    dir: "{{.SRC_DIR}}"
+    cmds:
+      - go mod download
+
+  fmt:
+    desc: go fmt
+    dir: "{{.SRC_DIR}}"
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: go vet
+    dir: "{{.SRC_DIR}}"
+    cmds:
+      - go vet ./...
+
+  build:
+    desc: Build {{.APP_NAME}} to ./{{.BUILD_DIR}}/{{.BIN_NAME}}
+    deps: [deps, tidy, vet]
+    env:
+      CGO_ENABLED: "{{.CGO_ENABLED}}"
+    cmds:
+      - >
+        {{if eq .OS "windows"}}
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force {{.BUILD_DIR}}"
+        {{else}}
+        mkdir -p {{.BUILD_DIR}}
+        {{end}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BIN_NAME}} ./{{.SRC_DIR}}
+    sources:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+    generates:
+      - "{{.BUILD_DIR}}/{{.BIN_NAME}}"
+
+  run:
+    desc: Build then run the binary (pass CLI args after --)
+    deps: [build]
+    cmds:
+      - >
+        {{if eq .OS "windows"}}
+        & ".\{{.BUILD_DIR}}\{{.BIN_NAME}}" {{.CLI_ARGS}}
+        {{else}}
+        "./{{.BUILD_DIR}}/{{.BIN_NAME}}" {{.CLI_ARGS}}
+        {{end}}
+    vars:
+      CLI_ARGS: "{{.CLI_ARGS}}"
+  test:
+    desc: Run unit tests
+    dir: "{{.SRC_DIR}}"
+    cmds:
+      - go test -race ./...
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - >
+        {{if eq .OS "windows"}}
+        powershell -NoProfile -Command "if (Test-Path '{{.BUILD_DIR}}') { Remove-Item -Recurse -Force '{{.BUILD_DIR}}' }"
+        {{else}}
+        rm -rf "{{.BUILD_DIR}}"
+        {{end}}
