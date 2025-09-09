@@ -113,8 +113,10 @@ func processInput(input io.Reader, re *regexp.Regexp, groupNames []string, outpu
 				if listUnmatched {
 					if _, exists := seenUnmatched[line]; !exists {
 						seenUnmatched[line] = struct{}{}
-						// In unmatched mode, print each unique non-matching line once.
-						fmt.Fprintln(output, line)
+						// In unmatched mode, print each unique non-matching line once, preserving line endings.
+						if _, err := io.WriteString(output, line+lineEnding); err != nil {
+							return err
+						}
 					}
 				} else {
 					ignoredLines++
