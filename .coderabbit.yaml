@@ -3,9 +3,10 @@ language: en
 reviews:
   profile: assertive
   high_level_summary: true
+  poem: false
   auto_review:
     enabled: true
-    drafts: false
+    drafts: true
 
   tools:
     golangci-lint:
@@ -13,4 +14,6 @@ reviews:
     gitleaks:
       enabled: true
     yamllint:
+      enabled: true
+    actionlint:
       enabled: true
