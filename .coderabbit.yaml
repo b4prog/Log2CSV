@@ -17,3 +17,9 @@ reviews:
       enabled: true
     actionlint:
       enabled: true
+    shellcheck:
+      enabled: true
+    markdownlint:
+      enabled: true
+    osvScanner:
+      enabled: true
