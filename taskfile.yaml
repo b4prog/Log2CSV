@@ -2,7 +2,7 @@ version: "3"
 
 vars:
   APP_NAME: Log2CSV
-  SRC_DIR: cmd/log2csv
+  SRC_DIR: .
   BUILD_DIR: build
   BIN_NAME: log2csv{{if eq .OS "windows"}}.exe{{end}}
   CGO_ENABLED: "0"
